@@ -1,0 +1,470 @@
+{
+  "cells": [
+    {
+      "cell_type": "code",
+      "source": [
+        "import pandas as pd\n",
+        "import numpy as np \n",
+        "import matplotlib.pyplot as plt \n",
+        "import scipy as sc\n",
+        "import torch\n",
+        "import torch.nn as nn\n",
+        "import torch.nn.functional as F\n",
+        "import seaborn as sns\n",
+        "from sklearn.model_selection import train_test_split\n",
+        "from sklearn.metrics import accuracy_score,confusion_matrix"
+      ],
+      "outputs": [],
+      "execution_count": 4,
+      "metadata": {
+        "gather": {
+          "logged": 1704248728027
+        }
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "df= pd.read_pickle('../../data/vel_LR_ssh.pkl')"
+      ],
+      "outputs": [],
+      "execution_count": 5,
+      "metadata": {
+        "gather": {
+          "logged": 1704248729844
+        }
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# Extracting information"
+      ],
+      "metadata": {
+        "nteract": {
+          "transient": {
+            "deleting": false
+          }
+        }
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "df['mean']=''\n",
+        "df['std']=''\n",
+        "df['kurtosis']=''\n",
+        "df['skewness']=''\n",
+        "df['max']=''\n",
+        "df['min']=''\n",
+        "df['crest factor']=''\n",
+        "df['rms']=''\n",
+        "df['shape factor']=''\n",
+        "df['pump label']=''"
+      ],
+      "outputs": [],
+      "execution_count": 6,
+      "metadata": {
+        "gather": {
+          "logged": 1704248730059
+        }
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "df['mean']=df['ts'].apply(lambda ts:[np.nanmean(ts)for ts in ts])\n",
+        "df['std']=df['ts'].apply(lambda ts:[np.nanstd(ts)for ts in ts])\n",
+        "df['kurtosis']=df['ts'].apply(lambda ts:[sc.stats.kurtosis(ts,nan_policy='omit') for ts in ts])\n",
+        "df['skewness']=df['ts'].apply(lambda ts:[sc.stats.skew(ts,nan_policy='omit') for ts in ts])\n",
+        "df['max']=df['ts'].apply(lambda ts:[np.nanmax(ts) for ts in ts])\n",
+        "df['min']=df['ts'].apply(lambda ts:[np.nanmin(ts) for ts in ts])\n",
+        "df['rms']=df['ts'].apply(lambda ts:[np.sqrt(np.nanmean(ts ** 2)) for ts in ts])\n",
+        "df['crest factor']=df['ts'].apply(lambda ts:[np.nanmax(ts) /(np.sqrt(np.nanmean(ts ** 2))) for ts in ts])\n",
+        "df['shape factor']=df['ts'].apply(lambda ts:[np.sqrt(np.nanmean(ts ** 2)) / np.nanmean(abs(ts)) for ts in ts])"
+      ],
+      "outputs": [],
+      "execution_count": 7,
+      "metadata": {
+        "gather": {
+          "logged": 1704248733015
+        }
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# 1 --> has pump problem\n",
+        "# 0 --> doesn't have pump problem\n",
+        "\n",
+        "for i,row in df.iterrows():\n",
+        "    if ('Pump_Flow_Problem.' in row['faults']):\n",
+        "        df.loc[i,'pump label']='1'\n",
+        "    else:\n",
+        "        df.loc[i,'pump label']='0'"
+      ],
+      "outputs": [],
+      "execution_count": 8,
+      "metadata": {
+        "gather": {
+          "logged": 1704248733254
+        }
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "\n",
+        "df.head()"
+      ],
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "execution_count": 9,
+          "data": {
+            "text/plain": "                                                  ts status  \\\n0  [[-0.000182507, -0.000762011, -0.00155276, -0....     l2   \n1  [[-0.004772555, -0.004103458, -0.003247749, -0...     l1   \n2  [[-0.002188359, -0.002100263, -0.001989596, -0...     l1   \n3  [[-0.000954767, -0.001490966, -0.001977236, -0...     l1   \n4  [[-0.002692016, -0.002709083, -0.001516245, -0...     l2   \n\n                                              faults            machine_name  \\\n0  [Machine_Misalignment., Motor_Bearings_Fault.,...  concvacpump6.1301A-VLR   \n1  [Machine_Misalignment., Motor_Bearings_Fault.,...  concvacpump6.1301A-VLR   \n2  [Machine_Misalignment., Motor_Bearings_Fault.,...  concvacpump6.1301A-VLR   \n3  [Machine_Misalignment., Motor_Bearings_Fault.,...  concvacpump6.1301A-VLR   \n4  [Machine_Misalignment., Motor_Bearings_Fault.,...  concvacpump6.1301A-VLR   \n\n           report_date          portal_date  \\\n0  2021-01-18 00:00:00  2021-01-18 00:00:00   \n1  2021-12-27 00:00:00  2021-12-27 00:00:00   \n2  2020-11-25 00:00:00  2020-11-25 00:00:00   \n3  2022-04-24 00:00:00  2022-04-24 00:00:00   \n4  2022-02-20 00:00:00  2022-02-20 00:00:00   \n\n                                                mean  \\\n0  [-3.693769531249949e-07, 4.006253747558593e-05...   \n1  [-1.3931111083984377e-05, -3.631303271484375e-...   \n2  [-1.6181146484375014e-05, -9.722639404296867e-...   \n3  [-8.46498706054688e-06, 6.83683276367188e-06, ...   \n4  [-2.064112377929688e-05, -1.758539238281251e-0...   \n\n                                                 std  \\\n0  [0.0018601822443232992, 0.0030175169268431986,...   \n1  [0.0019259116189656732, 0.0030257832200305023,...   \n2  [0.0017577013478103512, 0.002471256059770926, ...   \n3  [0.0018952110311943678, 0.002566903232677748, ...   \n4  [0.0018659769482993118, 0.0030752896627928117,...   \n\n                                            kurtosis  \\\n0  [-0.013298541361706384, 0.0103195173985009, 0....   \n1  [-0.09989669497028641, -0.10435893842016242, -...   \n2  [0.25325601970799694, 0.37783805646147206, -0....   \n3  [-0.1619832427977541, -0.10431581057676986, -0...   \n4  [-0.06603416387451588, -0.32635594187090344, -...   \n\n                                            skewness  \\\n0  [-0.0783611287026034, 0.07773887594599543, 0.0...   \n1  [0.06057246335021553, 0.11146549597389545, -0....   \n2  [-0.06625157707656007, -0.1509033030743881, -0...   \n3  [-0.021187067878208485, 0.016128282412632186, ...   \n4  [0.04911502961372701, 0.06285251168811878, 0.0...   \n\n                                                 max  \\\n0  [0.006780835, 0.009969162, 0.027541114, 0.0055...   \n1  [0.00606685, 0.010458384, 0.010843489, 0.00651...   \n2  [0.005707427, 0.008852553, 0.011653647, 0.0073...   \n3  [0.006087945, 0.010119365, 0.010637392, 0.0073...   \n4  [0.006078278, 0.009865044, 0.01310216, 0.00808...   \n\n                                                 min  \\\n0  [-0.007168011, -0.011624384, -0.029277566, -0....   \n1  [-0.007177491, -0.010179518, -0.009987765, -0....   \n2  [-0.00630873, -0.00858779, -0.011364505, -0.00...   \n3  [-0.006392286, -0.008418323, -0.010461427, -0....   \n4  [-0.006225085, -0.008604529, -0.011552138, -0....   \n\n                                        crest factor  \\\n0  [3.6452529783080614, 3.303472267959477, 3.7530...   \n1  [3.1500361835588215, 3.4561732174770547, 3.193...   \n2  [3.246959545518821, 3.5821801844627266, 3.3816...   \n3  [3.2122461162455545, 3.942232405959796, 2.9864...   \n4  [3.257224671539588, 3.207789768769835, 2.97142...   \n\n                                                 rms  \\\n0  [0.0018601822809969457, 0.0030177828634105216,...   \n1  [0.0019259620037589047, 0.0030260011121880153,...   \n2  [0.001757775826889161, 0.0024712751855411625, ...   \n3  [0.0018952299355927116, 0.0025669123374618213,...   \n4  [0.001866091109130335, 0.003075339941552085, 0...   \n\n                                        shape factor pump label  \n0  [1.252536060367827, 1.25372484721787, 1.252103...          0  \n1  [1.2497316396382447, 1.247110898169471, 1.2216...          1  \n2  [1.268440394553812, 1.2788788248830198, 1.2550...          0  \n3  [1.2519315201427075, 1.2414244077157293, 1.220...          0  \n4  [1.2512682598624199, 1.2275792976013382, 1.203...          0  ",
+            "text/html": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>ts</th>\n      <th>status</th>\n      <th>faults</th>\n      <th>machine_name</th>\n      <th>report_date</th>\n      <th>portal_date</th>\n      <th>mean</th>\n      <th>std</th>\n      <th>kurtosis</th>\n      <th>skewness</th>\n      <th>max</th>\n      <th>min</th>\n      <th>crest factor</th>\n      <th>rms</th>\n      <th>shape factor</th>\n      <th>pump label</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>[[-0.000182507, -0.000762011, -0.00155276, -0....</td>\n      <td>l2</td>\n      <td>[Machine_Misalignment., Motor_Bearings_Fault.,...</td>\n      <td>concvacpump6.1301A-VLR</td>\n      <td>2021-01-18 00:00:00</td>\n      <td>2021-01-18 00:00:00</td>\n      <td>[-3.693769531249949e-07, 4.006253747558593e-05...</td>\n      <td>[0.0018601822443232992, 0.0030175169268431986,...</td>\n      <td>[-0.013298541361706384, 0.0103195173985009, 0....</td>\n      <td>[-0.0783611287026034, 0.07773887594599543, 0.0...</td>\n      <td>[0.006780835, 0.009969162, 0.027541114, 0.0055...</td>\n      <td>[-0.007168011, -0.011624384, -0.029277566, -0....</td>\n      <td>[3.6452529783080614, 3.303472267959477, 3.7530...</td>\n      <td>[0.0018601822809969457, 0.0030177828634105216,...</td>\n      <td>[1.252536060367827, 1.25372484721787, 1.252103...</td>\n      <td>0</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>[[-0.004772555, -0.004103458, -0.003247749, -0...</td>\n      <td>l1</td>\n      <td>[Machine_Misalignment., Motor_Bearings_Fault.,...</td>\n      <td>concvacpump6.1301A-VLR</td>\n      <td>2021-12-27 00:00:00</td>\n      <td>2021-12-27 00:00:00</td>\n      <td>[-1.3931111083984377e-05, -3.631303271484375e-...</td>\n      <td>[0.0019259116189656732, 0.0030257832200305023,...</td>\n      <td>[-0.09989669497028641, -0.10435893842016242, -...</td>\n      <td>[0.06057246335021553, 0.11146549597389545, -0....</td>\n      <td>[0.00606685, 0.010458384, 0.010843489, 0.00651...</td>\n      <td>[-0.007177491, -0.010179518, -0.009987765, -0....</td>\n      <td>[3.1500361835588215, 3.4561732174770547, 3.193...</td>\n      <td>[0.0019259620037589047, 0.0030260011121880153,...</td>\n      <td>[1.2497316396382447, 1.247110898169471, 1.2216...</td>\n      <td>1</td>\n    </tr>\n    <tr>\n      <th>2</th>\n      <td>[[-0.002188359, -0.002100263, -0.001989596, -0...</td>\n      <td>l1</td>\n      <td>[Machine_Misalignment., Motor_Bearings_Fault.,...</td>\n      <td>concvacpump6.1301A-VLR</td>\n      <td>2020-11-25 00:00:00</td>\n      <td>2020-11-25 00:00:00</td>\n      <td>[-1.6181146484375014e-05, -9.722639404296867e-...</td>\n      <td>[0.0017577013478103512, 0.002471256059770926, ...</td>\n      <td>[0.25325601970799694, 0.37783805646147206, -0....</td>\n      <td>[-0.06625157707656007, -0.1509033030743881, -0...</td>\n      <td>[0.005707427, 0.008852553, 0.011653647, 0.0073...</td>\n      <td>[-0.00630873, -0.00858779, -0.011364505, -0.00...</td>\n      <td>[3.246959545518821, 3.5821801844627266, 3.3816...</td>\n      <td>[0.001757775826889161, 0.0024712751855411625, ...</td>\n      <td>[1.268440394553812, 1.2788788248830198, 1.2550...</td>\n      <td>0</td>\n    </tr>\n    <tr>\n      <th>3</th>\n      <td>[[-0.000954767, -0.001490966, -0.001977236, -0...</td>\n      <td>l1</td>\n      <td>[Machine_Misalignment., Motor_Bearings_Fault.,...</td>\n      <td>concvacpump6.1301A-VLR</td>\n      <td>2022-04-24 00:00:00</td>\n      <td>2022-04-24 00:00:00</td>\n      <td>[-8.46498706054688e-06, 6.83683276367188e-06, ...</td>\n      <td>[0.0018952110311943678, 0.002566903232677748, ...</td>\n      <td>[-0.1619832427977541, -0.10431581057676986, -0...</td>\n      <td>[-0.021187067878208485, 0.016128282412632186, ...</td>\n      <td>[0.006087945, 0.010119365, 0.010637392, 0.0073...</td>\n      <td>[-0.006392286, -0.008418323, -0.010461427, -0....</td>\n      <td>[3.2122461162455545, 3.942232405959796, 2.9864...</td>\n      <td>[0.0018952299355927116, 0.0025669123374618213,...</td>\n      <td>[1.2519315201427075, 1.2414244077157293, 1.220...</td>\n      <td>0</td>\n    </tr>\n    <tr>\n      <th>4</th>\n      <td>[[-0.002692016, -0.002709083, -0.001516245, -0...</td>\n      <td>l2</td>\n      <td>[Machine_Misalignment., Motor_Bearings_Fault.,...</td>\n      <td>concvacpump6.1301A-VLR</td>\n      <td>2022-02-20 00:00:00</td>\n      <td>2022-02-20 00:00:00</td>\n      <td>[-2.064112377929688e-05, -1.758539238281251e-0...</td>\n      <td>[0.0018659769482993118, 0.0030752896627928117,...</td>\n      <td>[-0.06603416387451588, -0.32635594187090344, -...</td>\n      <td>[0.04911502961372701, 0.06285251168811878, 0.0...</td>\n      <td>[0.006078278, 0.009865044, 0.01310216, 0.00808...</td>\n      <td>[-0.006225085, -0.008604529, -0.011552138, -0....</td>\n      <td>[3.257224671539588, 3.207789768769835, 2.97142...</td>\n      <td>[0.001866091109130335, 0.003075339941552085, 0...</td>\n      <td>[1.2512682598624199, 1.2275792976013382, 1.203...</td>\n      <td>0</td>\n    </tr>\n  </tbody>\n</table>\n</div>"
+          },
+          "metadata": {}
+        }
+      ],
+      "execution_count": 9,
+      "metadata": {
+        "gather": {
+          "logged": 1704248733515
+        }
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# Adjusting the data to be trained on"
+      ],
+      "metadata": {
+        "nteract": {
+          "transient": {
+            "deleting": false
+          }
+        }
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "training_cols=[ 'mean', 'std', 'kurtosis', 'skewness', 'max', 'min', 'crest factor','rms', 'shape factor']"
+      ],
+      "outputs": [],
+      "execution_count": 10,
+      "metadata": {
+        "gather": {
+          "logged": 1704248733742
+        }
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "all_data = np.stack([np.array(df[col].apply(lambda x: x[-6:])).tolist() for col in training_cols], axis=1)"
+      ],
+      "outputs": [],
+      "execution_count": 11,
+      "metadata": {
+        "gather": {
+          "logged": 1704248733932
+        }
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "all_data=torch.tensor(all_data,dtype=float)"
+      ],
+      "outputs": [],
+      "execution_count": 12,
+      "metadata": {
+        "gather": {
+          "logged": 1704248734161
+        }
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "y=torch.tensor(df['pump label'].values.astype(float)).view(-1,1)"
+      ],
+      "outputs": [],
+      "execution_count": 13,
+      "metadata": {
+        "gather": {
+          "logged": 1704248734393
+        }
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "reshaped_data = all_data.view(all_data.shape[0], -1)"
+      ],
+      "outputs": [],
+      "execution_count": 19,
+      "metadata": {
+        "gather": {
+          "logged": 1704248787973
+        }
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "X_train, X_test, y_train, y_test = train_test_split(reshaped_data, y, test_size=0.2, random_state=42)"
+      ],
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {
+        "gather": {
+          "logged": 1704248748053
+        }
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# Building the model"
+      ],
+      "metadata": {
+        "nteract": {
+          "transient": {
+            "deleting": false
+          }
+        }
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "class ANN_model(nn.Module):\n",
+        "    def __init__(self,input_size=54,output_size=1,layers=[25,10]):\n",
+        "        super().__init__()\n",
+        "        self.fc1=nn.Linear(input_size,layers[0])\n",
+        "        self.dropout=nn.Dropout()\n",
+        "        self.fc2=nn.Linear(layers[0],layers[1])\n",
+        "        self.fc3=nn.Linear(layers[1],output_size)\n",
+        "\n",
+        "    def forward(self,x):\n",
+        "        x=F.relu(self.fc1(x))\n",
+        "        x=self.dropout(x)\n",
+        "        x=F.relu(self.fc2(x))\n",
+        "        x=self.dropout(x)\n",
+        "        x=torch.sigmoid(self.fc3(x))\n",
+        "\n",
+        "        return x"
+      ],
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {
+        "gather": {
+          "logged": 1704248748066
+        }
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "* Defining optimizer and loss function"
+      ],
+      "metadata": {
+        "nteract": {
+          "transient": {
+            "deleting": false
+          }
+        }
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "torch.manual_seed(42)\n",
+        "model=ANN_model()\n",
+        "optimizer=torch.optim.Adam(model.parameters(),lr=0.01)\n",
+        "criterion=nn.BCELoss()\n"
+      ],
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {
+        "gather": {
+          "logged": 1704248748083
+        }
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# Training"
+      ],
+      "metadata": {
+        "nteract": {
+          "transient": {
+            "deleting": false
+          }
+        }
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "losses=[]\n",
+        "epochs=25\n",
+        "\n",
+        "for i in range(epochs):\n",
+        "    y_train_predicted=model(X_train.float())\n",
+        "    loss=criterion(y_train_predicted,y_train.float())\n",
+        "    losses.append(loss)\n",
+        "    \n",
+        "    y_train_predicted_binary = (y_train_predicted > 0.5).float()\n",
+        "    accuracy = accuracy_score(y_train, y_train_predicted_binary)\n",
+        "    \n",
+        "    print(f'epoch: {i:2} loss: {loss.item():10.8f}   accuracy: {accuracy * 100:.2f}%')\n",
+        "    optimizer.zero_grad()\n",
+        "    loss.backward()\n",
+        "    optimizer.step()\n"
+      ],
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {
+        "gather": {
+          "logged": 1704248748094
+        }
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# Validating"
+      ],
+      "metadata": {
+        "nteract": {
+          "transient": {
+            "deleting": false
+          }
+        }
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "with torch.no_grad():\n",
+        "    y_test_predicted = model(X_test.float())\n",
+        "    loss = criterion(y_test_predicted, y_test.float())\n",
+        "    \n",
+        "    y_test_predicted_binary = (y_test_predicted > 0.5).float()\n",
+        "    accuracy = accuracy_score(y_test, y_test_predicted_binary)\n",
+        "    \n",
+        "    print(f'loss: {loss.item():10.8f}   accuracy: {accuracy * 100:.2f}%')\n",
+        "    cm = confusion_matrix(y_test, y_test_predicted_binary)\n",
+        "\n",
+        "    # Plot Confusion Matrix\n",
+        "    plt.figure(figsize=(8, 6))\n",
+        "    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=['Negative', 'Positive'], yticklabels=['Negative', 'Positive'])\n",
+        "    plt.xlabel('Predicted')\n",
+        "    plt.ylabel('True')\n",
+        "    plt.title('Confusion Matrix')\n",
+        "    plt.show()"
+      ],
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {
+        "gather": {
+          "logged": 1704248748108
+        },
+        "jupyter": {
+          "outputs_hidden": false,
+          "source_hidden": false
+        },
+        "nteract": {
+          "transient": {
+            "deleting": false
+          }
+        }
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "* ploting loss After each epoch"
+      ],
+      "metadata": {
+        "jupyter": {
+          "outputs_hidden": false,
+          "source_hidden": false
+        },
+        "nteract": {
+          "transient": {
+            "deleting": false
+          }
+        }
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "with torch.no_grad():\n",
+        "    plt.plot(losses)\n",
+        "    plt.xlabel('Epochs')\n",
+        "    plt.ylabel('BinaryCrossEntropyLoss')"
+      ],
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {
+        "gather": {
+          "logged": 1704248748119
+        },
+        "jupyter": {
+          "outputs_hidden": false,
+          "source_hidden": false
+        },
+        "nteract": {
+          "transient": {
+            "deleting": false
+          }
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "kernel_info": {
+      "name": "python38-azureml"
+    },
+    "kernelspec": {
+      "name": "python38-azureml",
+      "language": "python",
+      "display_name": "Python 3.8 - AzureML"
+    },
+    "language_info": {
+      "name": "python",
+      "version": "3.8.5",
+      "mimetype": "text/x-python",
+      "codemirror_mode": {
+        "name": "ipython",
+        "version": 3
+      },
+      "pygments_lexer": "ipython3",
+      "nbconvert_exporter": "python",
+      "file_extension": ".py"
+    },
+    "microsoft": {
+      "host": {
+        "AzureML": {
+          "notebookHasBeenCompleted": true
+        }
+      },
+      "ms_spell_check": {
+        "ms_spell_check_language": "en"
+      }
+    },
+    "nteract": {
+      "version": "nteract-front-end@1.0.0"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 2
+}
